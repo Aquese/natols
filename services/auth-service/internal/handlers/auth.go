@@ -1,191 +1,138 @@
 package handlers
 
 import (
-	"auth-service/internal/config"
-	"auth-service/internal/models"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+
+	"auth-service/internal/models"
 )
 
 type AuthHandler struct {
-	db  *sql.DB
-	cfg *config.Config
+	db        *sql.DB
+	jwtSecret string
+	jwtExpiry string
 }
 
-func NewAuthHandler(db *sql.DB, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(db *sql.DB, jwtSecret string, jwtExpiry string) *AuthHandler {
 	return &AuthHandler{
-		db:  db,
-		cfg: cfg,
+		db:        db,
+		jwtSecret: jwtSecret,
+		jwtExpiry: jwtExpiry,
 	}
 }
 
-// Register creates a new user account
-func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Validate required fields
-	if req.Email == "" || req.Password == "" {
-		http.Error(w, `{"error":"Email and password are required"}`, http.StatusBadRequest)
+	// Check if username exists
+	var exists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", req.Username).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
 		return
 	}
 
 	// Hash password
-	hashedPassword, err := models.HashPassword(req.Password)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, `{"error":"Failed to process password"}`, http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
-	// Insert user into database
+	// Insert user
 	var user models.User
-	query := `
-		INSERT INTO users (email, password, first_name, last_name)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, email, first_name, last_name, created_at, updated_at
-	`
-	err = h.db.QueryRow(query, req.Email, hashedPassword, req.FirstName, req.LastName).
-		Scan(&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.CreatedAt, &user.UpdatedAt)
+	err = h.db.QueryRow(
+		"INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username, created_at, updated_at",
+		req.Username, string(hashedPassword),
+	).Scan(&user.ID, &user.Username, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
-		// Check for duplicate email
-		if err.Error() == `pq: duplicate key value violates unique constraint "users_email_key"` {
-			http.Error(w, `{"error":"Email already exists"}`, http.StatusConflict)
-			return
-		}
-		http.Error(w, `{"error":"Failed to create user"}`, http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
-	// Generate JWT token
-	token, err := h.generateToken(user.ID)
+	// Generate token
+	token, err := h.generateToken(user.ID, user.Username)
 	if err != nil {
-		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
-	// Return response
-	response := models.AuthResponse{
+	c.JSON(http.StatusCreated, models.AuthResponse{
 		Token: token,
 		User:  user,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
-// Login authenticates a user and returns a JWT token
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Validate required fields
-	if req.Email == "" || req.Password == "" {
-		http.Error(w, `{"error":"Email and password are required"}`, http.StatusBadRequest)
-		return
-	}
-
-	// Get user from database
+	// Get user
 	var user models.User
-	var hashedPassword string
-	query := `
-		SELECT id, email, password, first_name, last_name, created_at, updated_at
-		FROM users
-		WHERE email = $1
-	`
-	err := h.db.QueryRow(query, req.Email).
-		Scan(&user.ID, &user.Email, &hashedPassword, &user.FirstName, &user.LastName, &user.CreatedAt, &user.UpdatedAt)
+	err := h.db.QueryRow(
+		"SELECT id, username, password_hash, created_at, updated_at FROM users WHERE username = $1",
+		req.Username,
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, `{"error":"Invalid credentials"}`, http.StatusUnauthorized)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 	if err != nil {
-		http.Error(w, `{"error":"Database error"}`, http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
 
-	// Check password
-	if !models.CheckPassword(req.Password, hashedPassword) {
-		http.Error(w, `{"error":"Invalid credentials"}`, http.StatusUnauthorized)
-		return
-	}
-
-	// Generate JWT token
-	token, err := h.generateToken(user.ID)
+	// Verify password
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
 	if err != nil {
-		http.Error(w, `{"error":"Failed to generate token"}`, http.StatusInternalServerError)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
-	// Return response
-	response := models.AuthResponse{
+	// Generate token
+	token, err := h.generateToken(user.ID, user.Username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.AuthResponse{
 		Token: token,
 		User:  user,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
-// GetProfile returns the current user's profile
-func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
-	// Get user ID from request header (set by API Gateway)
-	userID := r.Header.Get("X-User-ID")
-	if userID == "" {
-		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
-		return
-	}
-
-	// Get user from database
-	var user models.User
-	query := `
-		SELECT id, email, first_name, last_name, created_at, updated_at
-		FROM users
-		WHERE id = $1
-	`
-	err := h.db.QueryRow(query, userID).
-		Scan(&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.CreatedAt, &user.UpdatedAt)
-
-	if err == sql.ErrNoRows {
-		http.Error(w, `{"error":"User not found"}`, http.StatusNotFound)
-		return
-	}
+func (h *AuthHandler) generateToken(userID string, username string) (string, error) {
+	// Parse JWT expiry duration
+	expiry, err := time.ParseDuration(h.jwtExpiry)
 	if err != nil {
-		http.Error(w, `{"error":"Database error"}`, http.StatusInternalServerError)
-		return
+		expiry = 24 * time.Hour // Default to 24 hours if parsing fails
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
-}
-
-// generateToken creates a JWT token for a user
-func (h *AuthHandler) generateToken(userID string) (string, error) {
 	claims := jwt.MapClaims{
-		"user_id": userID,
-		"exp":     time.Now().Add(h.cfg.JWTExpiry).Unix(),
-		"iat":     time.Now().Unix(),
+		"user_id":  userID,
+		"username": username,
+		"exp":      time.Now().Add(expiry).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(h.cfg.JWTSecret))
-}
-
-// HealthCheck returns service health status
-func (h *AuthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"healthy","service":"auth-service"}`))
+	return token.SignedString([]byte(h.jwtSecret))
 }

@@ -4,6 +4,7 @@ import (
 	"api-gateway/internal/config"
 	"io"
 	"net/http"
+	"strings"
 )
 
 type ProxyHandler struct {
@@ -27,8 +28,11 @@ func (p *ProxyHandler) ProxyToAnalysis(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *ProxyHandler) proxyRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
+	// Strip /api prefix from the path
+	path := strings.TrimPrefix(r.URL.Path, "/api")
+
 	// Create new request to backend service
-	url := targetURL + r.URL.Path
+	url := targetURL + path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}

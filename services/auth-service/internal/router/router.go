@@ -1,45 +1,25 @@
 package router
 
 import (
-	"auth-service/internal/config"
 	"auth-service/internal/handlers"
-	"database/sql"
-	"net/http"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(cfg *config.Config, db *sql.DB) *mux.Router {
-	r := mux.NewRouter()
-
-	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(db, cfg)
+func SetupRouter(authHandler *handlers.AuthHandler) *gin.Engine {
+	r := gin.Default()
 
 	// Health check
-	r.HandleFunc("/health", authHandler.HealthCheck).Methods("GET")
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "healthy"})
+	})
 
 	// Auth routes
-	r.HandleFunc("/auth/register", authHandler.Register).Methods("POST")
-	r.HandleFunc("/auth/login", authHandler.Login).Methods("POST")
-	r.HandleFunc("/auth/profile", authHandler.GetProfile).Methods("GET")
-
-	// CORS middleware
-	r.Use(corsMiddleware)
+	auth := r.Group("/auth")
+	{
+		auth.POST("/register", authHandler.Register)
+		auth.POST("/login", authHandler.Login)
+	}
 
 	return r
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }

@@ -1,16 +1,18 @@
 package database
 
 import (
-	"auth-service/internal/config"
 	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/Aquese/natols/data-service/internal/config"
 	_ "github.com/lib/pq"
 )
 
+// NewPostgresDB creates a new PostgreSQL database connection
 func NewPostgresDB(cfg *config.Config) (*sql.DB, error) {
-	dsn := fmt.Sprintf(
+	// Build connection string
+	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		cfg.DBHost,
 		cfg.DBPort,
@@ -20,19 +22,20 @@ func NewPostgresDB(cfg *config.Config) (*sql.DB, error) {
 		cfg.DBSSLMode,
 	)
 
-	db, err := sql.Open("postgres", dsn)
+	// Open database connection
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, fmt.Errorf("error opening database: %w", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Configure connection pool
+	// Set connection pool settings
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	// Test connection
+	// Test the connection
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("error connecting to database: %w", err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	return db, nil

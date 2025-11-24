@@ -2,13 +2,13 @@ package main
 
 import (
 	"log"
+	"net/http"
+	"time"
 
-	"auth-service/internal/config"
-	"auth-service/internal/database"
-	"auth-service/internal/handlers"
-	"auth-service/internal/router"
+	"github.com/Aquese/natols/data-service/internal/config"
+	"github.com/Aquese/natols/data-service/internal/database"
+	"github.com/Aquese/natols/data-service/internal/router"
 
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -33,20 +33,21 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret, cfg.JWTExpiry)
+	// Initialize router
+	r := router.NewRouter(cfg, db)
 
-	// Set Gin mode
-	if cfg.Environment == "production" {
-		gin.SetMode(gin.ReleaseMode)
+	// Configure server
+	srv := &http.Server{
+		Addr:         cfg.ServerAddress,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	// Initialize router
-	r := router.SetupRouter(authHandler)
-
 	// Start server
-	log.Printf("Auth Service starting on %s", cfg.ServerPort)
-	if err := r.Run(":" + cfg.ServerPort); err != nil {
+	log.Printf("Data Service starting on %s", cfg.ServerAddress)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
