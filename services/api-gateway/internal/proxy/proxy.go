@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type ProxyHandler struct {
@@ -50,8 +51,10 @@ func (p *ProxyHandler) proxyRequest(w http.ResponseWriter, r *http.Request, targ
 		}
 	}
 
-	// Execute request
-	client := &http.Client{}
+	// Execute request with extended timeout for AI analysis
+	client := &http.Client{
+		Timeout: 120 * time.Second,
+	}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		http.Error(w, `{"error":"Backend service unavailable"}`, http.StatusServiceUnavailable)

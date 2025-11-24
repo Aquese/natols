@@ -23,13 +23,13 @@ func main() {
 	// Initialize router
 	r := router.NewRouter(cfg)
 
-	// Configure server
+	// Configure server with extended timeouts for AI analysis
 	srv := &http.Server{
 		Addr:         cfg.ServerAddress,
 		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  120 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Start server

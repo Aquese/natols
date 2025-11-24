@@ -123,6 +123,7 @@ services:
       PORT: 8083
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: llama2
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: natols_user

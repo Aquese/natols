@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { Search, LayoutDashboard, Briefcase, TrendingUp, LogOut, Menu, X } from 'lucide-react';
+import { Search, LayoutDashboard, Briefcase, TrendingUp, BarChart3, LogOut, Menu, X } from 'lucide-react';
 
 const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -27,6 +27,7 @@ const Navbar: React.FC = () => {
   const navLinks = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/portfolio', label: 'Portfolio', icon: Briefcase },
+    { path: '/analysis', label: 'Analysis', icon: BarChart3 },
   ];
 
   const isActive = (path: string) => location.pathname === path;
