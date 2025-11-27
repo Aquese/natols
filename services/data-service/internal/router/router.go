@@ -24,22 +24,19 @@ func NewRouter(cfg *config.Config, db *sql.DB) *mux.Router {
 	stockHandler := handlers.NewStockHandler(db)
 	portfolioHandler := handlers.NewPortfolioHandler(db)
 
-	// API v1 routes
-	api := r.PathPrefix("/api/v1").Subrouter()
-
 	// Apply middleware
-	api.Use(middleware.LoggingMiddleware)
-	api.Use(middleware.CORSMiddleware)
+	r.Use(middleware.LoggingMiddleware)
+	r.Use(middleware.CORSMiddleware)
 
 	// Stock routes
-	stocks := api.PathPrefix("/stocks").Subrouter()
+	stocks := r.PathPrefix("/stocks").Subrouter()
 	stocks.HandleFunc("", stockHandler.SearchStocks).Methods("GET")
 	stocks.HandleFunc("/{symbol}", stockHandler.GetStock).Methods("GET")
-	stocks.HandleFunc("/{symbol}/prices", stockHandler.GetStockPrices).Methods("GET")
+	stocks.HandleFunc("/{symbol}/history", stockHandler.GetStockPrices).Methods("GET")
 	stocks.HandleFunc("/{symbol}", stockHandler.UpdateStock).Methods("PUT")
 
-	// Portfolio routes (require authentication in production)
-	portfolios := api.PathPrefix("/portfolios").Subrouter()
+	// Portfolio routes
+	portfolios := r.PathPrefix("/portfolios").Subrouter()
 	portfolios.HandleFunc("", portfolioHandler.GetPortfolios).Methods("GET")
 	portfolios.HandleFunc("", portfolioHandler.CreatePortfolio).Methods("POST")
 	portfolios.HandleFunc("/{id}", portfolioHandler.GetPortfolio).Methods("GET")
