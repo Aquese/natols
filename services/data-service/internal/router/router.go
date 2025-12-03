@@ -40,8 +40,10 @@ func NewRouter(cfg *config.Config, db *sql.DB) *mux.Router {
 	portfolios.HandleFunc("", portfolioHandler.GetPortfolios).Methods("GET")
 	portfolios.HandleFunc("", portfolioHandler.CreatePortfolio).Methods("POST")
 	portfolios.HandleFunc("/{id}", portfolioHandler.GetPortfolio).Methods("GET")
+	portfolios.HandleFunc("/{id}", portfolioHandler.DeletePortfolio).Methods("DELETE")
 	portfolios.HandleFunc("/{id}/holdings", portfolioHandler.GetHoldings).Methods("GET")
 	portfolios.HandleFunc("/{id}/holdings", portfolioHandler.AddHolding).Methods("POST")
+	portfolios.HandleFunc("/{id}/holdings/{holding_id}", portfolioHandler.DeleteHolding).Methods("DELETE")
 
 	return r
 }

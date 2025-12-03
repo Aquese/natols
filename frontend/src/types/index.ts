@@ -37,7 +37,7 @@ export interface Stock {
 }
 
 export interface StockPrice {
-  id: number;
+  id: string;
   symbol: string;
   date: string;
   open: number;
@@ -51,8 +51,8 @@ export interface StockPrice {
 // Portfolio Types
 // ============================================
 export interface Portfolio {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   name: string;
   description: string;
   total_value: number;
@@ -62,11 +62,11 @@ export interface Portfolio {
 }
 
 export interface Holding {
-  id: number;
-  portfolio_id: number;
+  id: string;
+  portfolio_id: string;
   symbol: string;
   quantity: number;
-  avg_price: number;
+  average_cost: number;
   total_cost: number;
   current_price: number;
   market_value: number;

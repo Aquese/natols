@@ -1,13 +1,13 @@
 // src/pages/Portfolio.tsx
 import React, { useEffect, useState } from 'react';
-import { portfolioService } from 'services/portfolioService';
-import { Portfolio, Holding, CreatePortfolioRequest, AddHoldingRequest } from 'types';
-import Card from 'components/common/Card';
-import Button from 'components/common/Button';
-import Input from 'components/common/Input';
-import Loading from 'components/common/Loading';
-import { formatCurrency, formatPercent, getChangeColor } from 'utils/formatters';
-import { Plus, Briefcase, TrendingUp, TrendingDown } from 'lucide-react';
+import { portfolioService } from '../services/portfolioService';
+import { Portfolio, Holding, CreatePortfolioRequest, AddHoldingRequest } from '../types';
+import Card from '../components/common/Card';
+import Button from '../components/common/Button';
+import Input from '../components/common/Input';
+import Loading from '../components/common/Loading';
+import { formatCurrency, formatPercent, getChangeColor } from '../utils/formatters';
+import { Plus, Briefcase, TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
 
 const PortfolioPage: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
@@ -48,7 +48,7 @@ const PortfolioPage: React.FC = () => {
     }
   };
 
-  const loadHoldings = async (portfolioId: number) => {
+  const loadHoldings = async (portfolioId: string) => {
     try {
       const data = await portfolioService.getHoldings(portfolioId);
       setHoldings(data);
@@ -94,9 +94,25 @@ const PortfolioPage: React.FC = () => {
       setHoldingQuantity('');
       setHoldingPrice('');
       loadHoldings(selectedPortfolio.id);
-      loadPortfolios(); // Refresh to update totals
+      loadPortfolios();
     } catch (err) {
       console.error('Failed to add holding', err);
+    }
+  };
+
+  const handleDeleteHolding = async (holdingId: string) => {
+    if (!selectedPortfolio) return;
+    
+    if (!window.confirm('Are you sure you want to delete this holding?')) {
+      return;
+    }
+
+    try {
+      await portfolioService.deleteHolding(selectedPortfolio.id, holdingId);
+      loadHoldings(selectedPortfolio.id);
+      loadPortfolios();
+    } catch (err) {
+      console.error('Failed to delete holding', err);
     }
   };
 
@@ -247,6 +263,7 @@ const PortfolioPage: React.FC = () => {
                               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Market Value</th>
                               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gain/Loss</th>
                               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Return</th>
+                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
@@ -259,7 +276,7 @@ const PortfolioPage: React.FC = () => {
                                   {holding.quantity}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-gray-900">
-                                  {formatCurrency(holding.avg_price)}
+                                  {formatCurrency(holding.average_cost)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-gray-900">
                                   {formatCurrency(holding.current_price)}
@@ -272,6 +289,15 @@ const PortfolioPage: React.FC = () => {
                                 </td>
                                 <td className={`px-6 py-4 whitespace-nowrap text-right font-medium ${getChangeColor(holding.gain_percent)}`}>
                                   {formatPercent(holding.gain_percent)}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-right">
+                                  <button
+                                    onClick={() => handleDeleteHolding(holding.id)}
+                                    className="text-red-600 hover:text-red-800 transition-colors"
+                                    title="Delete holding"
+                                  >
+                                    <Trash2 className="h-5 w-5" />
+                                  </button>
                                 </td>
                               </tr>
                             ))}

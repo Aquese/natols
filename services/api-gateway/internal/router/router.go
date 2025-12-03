@@ -52,6 +52,11 @@ func NewRouter(cfg *config.Config) *mux.Router {
 	protected.HandleFunc("/analysis/history", proxyHandler.ProxyToAnalysis).Methods("GET")
 	protected.HandleFunc("/analysis/{id}", proxyHandler.ProxyToAnalysis).Methods("GET")
 
+	// Portfolio routes
+	protected.HandleFunc("/portfolios", proxyHandler.ProxyToData).Methods("GET", "POST")
+	protected.HandleFunc("/portfolios/{id}", proxyHandler.ProxyToData).Methods("GET", "DELETE")
+	protected.HandleFunc("/portfolios/{id}/holdings", proxyHandler.ProxyToData).Methods("GET", "POST")
+	protected.HandleFunc("/portfolios/{id}/holdings/{holding_id}", proxyHandler.ProxyToData).Methods("DELETE")
 	return r
 }
 

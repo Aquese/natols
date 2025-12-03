@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
 )
@@ -18,10 +17,9 @@ func NewPortfolioHandler(db *sql.DB) *PortfolioHandler {
 	return &PortfolioHandler{db: db}
 }
 
-// Portfolio response structure
 type Portfolio struct {
-	ID          int     `json:"id"`
-	UserID      int     `json:"user_id"`
+	ID          string  `json:"id"`
+	UserID      string  `json:"user_id"`
 	Name        string  `json:"name"`
 	Description string  `json:"description"`
 	TotalValue  float64 `json:"total_value"`
@@ -31,11 +29,11 @@ type Portfolio struct {
 }
 
 type Holding struct {
-	ID           int     `json:"id"`
-	PortfolioID  int     `json:"portfolio_id"`
+	ID           string  `json:"id"`
+	PortfolioID  string  `json:"portfolio_id"`
 	Symbol       string  `json:"symbol"`
 	Quantity     float64 `json:"quantity"`
-	AvgPrice     float64 `json:"avg_price"`
+	AverageCost  float64 `json:"average_cost"`
 	TotalCost    float64 `json:"total_cost"`
 	CurrentPrice float64 `json:"current_price"`
 	MarketValue  float64 `json:"market_value"`
@@ -43,30 +41,22 @@ type Holding struct {
 	GainPercent  float64 `json:"gain_percent"`
 }
 
-// GetPortfolios retrieves all portfolios for a user
 func (h *PortfolioHandler) GetPortfolios(w http.ResponseWriter, r *http.Request) {
-	// In production, get user_id from JWT token
-	userIDStr := r.Header.Get("X-User-ID")
-	if userIDStr == "" {
-		http.Error(w, "User ID not found", http.StatusUnauthorized)
-		return
-	}
-
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		http.Error(w, `{"error":"User ID not found"}`, http.StatusUnauthorized)
 		return
 	}
 
 	rows, err := h.db.Query(`
-		SELECT id, user_id, name, description
+		SELECT id, user_id, name, description, total_value
 		FROM portfolios
 		WHERE user_id = $1
 		ORDER BY created_at DESC
 	`, userID)
 
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Database error"}`, http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -74,43 +64,40 @@ func (h *PortfolioHandler) GetPortfolios(w http.ResponseWriter, r *http.Request)
 	var portfolios []Portfolio
 	for rows.Next() {
 		var p Portfolio
-		err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description)
+		err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.TotalValue)
 		if err != nil {
-			http.Error(w, "Error reading data", http.StatusInternalServerError)
+			http.Error(w, `{"error":"Error reading data"}`, http.StatusInternalServerError)
 			return
 		}
-
-		// Calculate portfolio value
 		h.calculatePortfolioValue(&p)
 		portfolios = append(portfolios, p)
+	}
+
+	if portfolios == nil {
+		portfolios = []Portfolio{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(portfolios)
 }
 
-// GetPortfolio retrieves a specific portfolio
 func (h *PortfolioHandler) GetPortfolio(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	portfolioID, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		http.Error(w, "Invalid portfolio ID", http.StatusBadRequest)
-		return
-	}
+	portfolioID := vars["id"]
 
 	var p Portfolio
-	err = h.db.QueryRow(`
-		SELECT id, user_id, name, description
+	err := h.db.QueryRow(`
+		SELECT id, user_id, name, description, total_value
 		FROM portfolios
 		WHERE id = $1
-	`, portfolioID).Scan(&p.ID, &p.UserID, &p.Name, &p.Description)
+	`, portfolioID).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.TotalValue)
 
 	if err == sql.ErrNoRows {
-		http.Error(w, "Portfolio not found", http.StatusNotFound)
+		http.Error(w, `{"error":"Portfolio not found"}`, http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Database error"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -120,17 +107,10 @@ func (h *PortfolioHandler) GetPortfolio(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(p)
 }
 
-// CreatePortfolio creates a new portfolio
 func (h *PortfolioHandler) CreatePortfolio(w http.ResponseWriter, r *http.Request) {
-	userIDStr := r.Header.Get("X-User-ID")
-	if userIDStr == "" {
-		http.Error(w, "User ID not found", http.StatusUnauthorized)
-		return
-	}
-
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		http.Error(w, `{"error":"User ID not found"}`, http.StatusUnauthorized)
 		return
 	}
 
@@ -140,19 +120,19 @@ func (h *PortfolioHandler) CreatePortfolio(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 		return
 	}
 
-	var portfolioID int
-	err = h.db.QueryRow(`
+	var portfolioID string
+	err := h.db.QueryRow(`
 		INSERT INTO portfolios (user_id, name, description)
 		VALUES ($1, $2, $3)
 		RETURNING id
 	`, userID, req.Name, req.Description).Scan(&portfolioID)
 
 	if err != nil {
-		http.Error(w, "Failed to create portfolio", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Failed to create portfolio"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -164,27 +144,21 @@ func (h *PortfolioHandler) CreatePortfolio(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// GetHoldings retrieves all holdings for a portfolio
 func (h *PortfolioHandler) GetHoldings(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	portfolioID, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		http.Error(w, "Invalid portfolio ID", http.StatusBadRequest)
-		return
-	}
+	portfolioID := vars["id"]
 
 	rows, err := h.db.Query(`
 		SELECT 
-			h.id, h.portfolio_id, h.symbol, h.quantity, h.avg_price,
-			s.last_price
-		FROM holdings h
-		LEFT JOIN stocks s ON h.symbol = s.symbol
-		WHERE h.portfolio_id = $1
-		ORDER BY h.symbol
+			id, portfolio_id, symbol, quantity, average_cost, current_price,
+			total_cost, current_value, gain_loss, gain_loss_pct
+		FROM holdings
+		WHERE portfolio_id = $1
+		ORDER BY symbol
 	`, portfolioID)
 
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Database error"}`, http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -192,47 +166,36 @@ func (h *PortfolioHandler) GetHoldings(w http.ResponseWriter, r *http.Request) {
 	var holdings []Holding
 	for rows.Next() {
 		var h Holding
-		var currentPrice sql.NullFloat64
 		err := rows.Scan(
 			&h.ID,
 			&h.PortfolioID,
 			&h.Symbol,
 			&h.Quantity,
-			&h.AvgPrice,
-			&currentPrice,
+			&h.AverageCost,
+			&h.CurrentPrice,
+			&h.TotalCost,
+			&h.MarketValue,
+			&h.Gain,
+			&h.GainPercent,
 		)
 		if err != nil {
-			http.Error(w, "Error reading data", http.StatusInternalServerError)
+			http.Error(w, `{"error":"Error reading data"}`, http.StatusInternalServerError)
 			return
 		}
-
-		if currentPrice.Valid {
-			h.CurrentPrice = currentPrice.Float64
-		}
-
-		// Calculate values
-		h.TotalCost = h.Quantity * h.AvgPrice
-		h.MarketValue = h.Quantity * h.CurrentPrice
-		h.Gain = h.MarketValue - h.TotalCost
-		if h.TotalCost > 0 {
-			h.GainPercent = (h.Gain / h.TotalCost) * 100
-		}
-
 		holdings = append(holdings, h)
+	}
+
+	if holdings == nil {
+		holdings = []Holding{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(holdings)
 }
 
-// AddHolding adds or updates a holding in a portfolio
 func (h *PortfolioHandler) AddHolding(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	portfolioID, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		http.Error(w, "Invalid portfolio ID", http.StatusBadRequest)
-		return
-	}
+	portfolioID := vars["id"]
 
 	var req struct {
 		Symbol   string  `json:"symbol"`
@@ -241,38 +204,38 @@ func (h *PortfolioHandler) AddHolding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
 		return
 	}
 
 	// Check if holding already exists
 	var existingQty, existingAvg sql.NullFloat64
-	err = h.db.QueryRow(`
-		SELECT quantity, avg_price FROM holdings
+	err := h.db.QueryRow(`
+		SELECT quantity, average_cost FROM holdings
 		WHERE portfolio_id = $1 AND symbol = $2
 	`, portfolioID, req.Symbol).Scan(&existingQty, &existingAvg)
 
 	if err == sql.ErrNoRows {
-		// Create new holding
+		// Create new holding with current_price set to purchase price
 		_, err = h.db.Exec(`
-			INSERT INTO holdings (portfolio_id, symbol, quantity, avg_price)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO holdings (portfolio_id, symbol, quantity, average_cost, current_price)
+			VALUES ($1, $2, $3, $4, $4)
 		`, portfolioID, req.Symbol, req.Quantity, req.Price)
 	} else if err == nil {
-		// Update existing holding (average price calculation)
+		// Update existing holding
 		totalCost := (existingQty.Float64 * existingAvg.Float64) + (req.Quantity * req.Price)
 		newQty := existingQty.Float64 + req.Quantity
 		newAvg := totalCost / newQty
 
 		_, err = h.db.Exec(`
 			UPDATE holdings
-			SET quantity = $1, avg_price = $2, updated_at = CURRENT_TIMESTAMP
+			SET quantity = $1, average_cost = $2, current_price = $2, updated_at = CURRENT_TIMESTAMP
 			WHERE portfolio_id = $3 AND symbol = $4
 		`, newQty, newAvg, portfolioID, req.Symbol)
 	}
 
 	if err != nil {
-		http.Error(w, "Failed to add holding", http.StatusInternalServerError)
+		http.Error(w, `{"error":"Failed to add holding"}`, http.StatusInternalServerError)
 		return
 	}
 
@@ -280,16 +243,14 @@ func (h *PortfolioHandler) AddHolding(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
-// Helper function to calculate portfolio value
 func (h *PortfolioHandler) calculatePortfolioValue(p *Portfolio) {
 	rows, err := h.db.Query(`
 		SELECT 
-			h.quantity,
-			h.avg_price,
-			COALESCE(s.last_price, 0) as current_price
-		FROM holdings h
-		LEFT JOIN stocks s ON h.symbol = s.symbol
-		WHERE h.portfolio_id = $1
+			quantity,
+			average_cost,
+			current_price
+		FROM holdings
+		WHERE portfolio_id = $1
 	`, p.ID)
 
 	if err != nil {
@@ -299,10 +260,10 @@ func (h *PortfolioHandler) calculatePortfolioValue(p *Portfolio) {
 
 	var totalCost, totalValue float64
 	for rows.Next() {
-		var qty, avgPrice, currentPrice float64
-		rows.Scan(&qty, &avgPrice, &currentPrice)
+		var qty, avgCost, currentPrice float64
+		rows.Scan(&qty, &avgCost, &currentPrice)
 
-		totalCost += qty * avgPrice
+		totalCost += qty * avgCost
 		totalValue += qty * currentPrice
 	}
 
@@ -312,4 +273,32 @@ func (h *PortfolioHandler) calculatePortfolioValue(p *Portfolio) {
 	if totalCost > 0 {
 		p.GainPercent = (p.TotalGain / totalCost) * 100
 	}
+}
+
+func (h *PortfolioHandler) DeletePortfolio(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	portfolioID := vars["id"]
+
+	_, err := h.db.Exec(`DELETE FROM portfolios WHERE id = $1`, portfolioID)
+	if err != nil {
+		http.Error(w, `{"error":"Failed to delete portfolio"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Portfolio deleted"})
+}
+
+func (h *PortfolioHandler) DeleteHolding(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	holdingID := vars["holding_id"]
+
+	_, err := h.db.Exec(`DELETE FROM holdings WHERE id = $1`, holdingID)
+	if err != nil {
+		http.Error(w, `{"error":"Failed to delete holding"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Holding deleted"})
 }
