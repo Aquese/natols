@@ -155,8 +155,8 @@ APP_HOST=0.0.0.0
 # Database
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
-POSTGRES_DB=natols
-POSTGRES_USER=natols
+POSTGRES_DB=natols_db
+POSTGRES_USER=natols_user
 POSTGRES_PASSWORD=$DB_PASSWORD
 
 # Authentication
@@ -164,9 +164,11 @@ JWT_SECRET=$JWT_SECRET
 JWT_EXPIRY=24h
 
 # AI Service
-AI_SERVICE_URL=http://ai-service:5000
-OLLAMA_HOST=http://ollama:11434
+OLLAMA_URL=http://ollama:11434
 OLLAMA_MODEL=llama2
+
+# Alpha Vantage API (user must set this)
+ALPHA_VANTAGE_API_KEY=YOUR_API_KEY_HERE
 
 # Data Directories
 DATA_DIR=$DATA_DIR
@@ -179,6 +181,7 @@ EOF
 
     chmod 600 "$INSTALL_DIR/.env"
     print_success "Environment file created at $INSTALL_DIR/.env"
+    print_info "Please edit $INSTALL_DIR/.env and add your ALPHA_VANTAGE_API_KEY"
 }
 
 # Copy application files
@@ -201,10 +204,7 @@ init_database() {
     
     # Wait for postgres to be ready
     print_info "Waiting for PostgreSQL to be ready..."
-    sleep 10
-    
-    # Run migrations (to be implemented)
-    # docker-compose exec postgres psql -U natols -d natols -f /migrations/init.sql
+    sleep 15
     
     print_success "Database initialized"
 }
@@ -219,9 +219,34 @@ pull_images() {
     print_success "Docker images pulled"
 }
 
+# Setup Ollama
+setup_ollama() {
+    print_info "Setting up Ollama AI model..."
+    
+    cd "$INSTALL_DIR"
+    
+    # Start ollama container
+    docker-compose up -d ollama
+    
+    # Wait for ollama to be ready
+    print_info "Waiting for Ollama to start..."
+    sleep 10
+    
+    # Pull llama2 model
+    print_info "Downloading llama2 model (3.8GB - this may take several minutes)..."
+    docker exec natols-ollama ollama pull llama2
+    
+    # Verify model is installed
+    if docker exec natols-ollama ollama list | grep -q llama2; then
+        print_success "Ollama llama2 model installed successfully"
+    else
+        print_error "Failed to install llama2 model"
+    fi
+}
+
 # Start services
 start_services() {
-    print_info "Starting services..."
+    print_info "Starting all services..."
     
     cd "$INSTALL_DIR"
     docker-compose up -d
@@ -233,10 +258,10 @@ start_services() {
 health_check() {
     print_info "Running health checks..."
     
-    sleep 5
+    sleep 10
     
     # Check if containers are running
-    local containers=("postgres" "backend" "frontend" "nginx" "ai-service" "ollama")
+    local containers=("postgres" "redis" "api-gateway" "auth-service" "data-service" "analysis-service" "ollama" "frontend")
     
     for container in "${containers[@]}"; do
         if docker ps | grep -q "${PROJECT_NAME}-${container}"; then
@@ -260,9 +285,15 @@ show_completion() {
     echo -e "  ${YELLOW}http://${IP}${NC}"
     echo -e "  ${YELLOW}http://localhost${NC} (if on same machine)"
     echo ""
+    echo -e "Default credentials:"
+    echo -e "  Username: ${YELLOW}austin${NC}"
+    echo -e "  Password: ${YELLOW}Password123${NC}"
+    echo ""
     echo -e "Configuration file: ${YELLOW}$INSTALL_DIR/.env${NC}"
     echo -e "Data directory: ${YELLOW}$DATA_DIR${NC}"
     echo -e "Logs directory: ${YELLOW}$LOG_DIR${NC}"
+    echo ""
+    echo -e "${RED}IMPORTANT:${NC} Edit ${YELLOW}$INSTALL_DIR/.env${NC} and add your ALPHA_VANTAGE_API_KEY"
     echo ""
     echo -e "To view logs:"
     echo -e "  ${YELLOW}docker-compose -f $INSTALL_DIR/docker-compose.yml logs -f${NC}"
@@ -317,6 +348,7 @@ EOF
     copy_files
     pull_images
     init_database
+    setup_ollama
     start_services
     health_check
     show_completion
